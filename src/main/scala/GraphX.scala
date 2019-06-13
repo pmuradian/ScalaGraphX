@@ -91,7 +91,12 @@ object GraphX {
 
     println("Author with smallest average edge length: " + sa)
 
+    val subGruph = graph.subgraph(triplet => { triplet.srcAttr.contains("sci") && triplet.dstAttr.contains("sci") })
 
+    val triangleCount = graph.subgraph(triplet => triplet.srcAttr.contains("sci") && triplet.dstAttr.contains("sci")).triangleCount().vertices
+
+    graph.pageRank(0.0001).vertices.groupByKey().map(x => (x._1, x._2.sum)).collect().foreach(x  => println(x._1 + " " + x._2))
+//    println("Triangle cound in vldb subgraph: " + triangleCount.collect().mkString("\n"))
     // remove
 //    val vertices = graph.vertices.map(_._1).collect()
 //
