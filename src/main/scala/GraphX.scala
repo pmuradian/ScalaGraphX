@@ -1,11 +1,13 @@
 
-import org.apache.spark.graphx.{Edge, EdgeDirection, Graph}
+import java.io.FileWriter
+
+import org.apache.spark.graphx.{Edge, EdgeDirection, Graph, PartitionStrategy}
 import org.apache.spark.sql.SparkSession
 
 import scala.collection.mutable.ListBuffer
 import scala.math.BigInt
 
-case class DBLPEdge(srcId: String, dstId: String, attr: Long)
+case class DBLPEdge(srcId: String, dstId: String, attr: Long, attr_2: String)
 
 case class DBLPEntry(title: String, authors: String, year: BigInt) {
   def isValid = {
@@ -16,9 +18,7 @@ case class DBLPEntry(title: String, authors: String, year: BigInt) {
 class GraphX
 
 object GraphX {
-  private val datafile = "../../Downloads/test.json"
-
-
+  private val datafile = "/Users/azazel/Downloads/dblp2.json"
 
   def main(args: Array[String]): Unit = {
     val spark = SparkSession.builder.
@@ -44,23 +44,19 @@ object GraphX {
           split(", ")
 
         if (edges.length > 1) {
-
           val combinations = edges combinations (2) map {
             case Array(a, b) => (a, b)
           } toList
 
           combinations foreach {
             c => {
-              gEdges += DBLPEdge(c._1, c._2, edges.length)
+              gEdges += DBLPEdge(c._1, c._2, edges.length, row.title)
             }
           }
         }
-
         gEdges.toList
       }
-    }.filter {
-      _.length > 0
-    }.flatMap(x => x).map(x => Edge(x.srcId.hashCode, x.dstId.hashCode, x.attr)).collect()
+    }.filter { _.nonEmpty }.flatMap(x => x).map(x => Edge(x.srcId.hashCode, x.dstId.hashCode, (x.attr, x.attr_2))).collect()
 
     val vertexArray = dblpDF.filter { _.isValid } .map(row => {
       row.authors.
@@ -74,34 +70,42 @@ object GraphX {
     val vertexRDD = sc.parallelize(vertexArray)
 
     val graph = Graph(vertexRDD, edgesRDD)
-    val mostCoauthors = graph.degrees.reduce((a, b) => if (a._2 > b._2) a else b)._1
 
-    println("Edge count = " + graph.numEdges)
-    println("Vertex count = " + graph.numVertices)
-    println("Most co-authors: " + graph.vertices.filter(x => x._1 == mostCoauthors).first()._2)
+    val numEdges  = graph.numEdges
+    val numVertices = graph.numVertices
+    val mostCoauthors = graph.vertices.filter(x => x._1 == mostCoauthors).first()._2
 
-    val numNeighbors = graph.collectNeighborIds(EdgeDirection.Either).map(x => (x._1, x._2.size))
-
+    // Find the author with the smallest average edge length.
+    val numNeighbors = graph.collectNeighborIds(EdgeDirection.Either).map(x => (x._1, x._2.length))
     val sumUpRDD = graph.aggregateMessages[(Long, Long)](t => {
-      t.sendToDst((t.dstId, t.attr))
+      t.sendToDst((t.dstId, t.attr._1))
     }, (a, b) => (a._1, a._2 + b._2))
 
     val smallAuthor = sumUpRDD.join(numNeighbors).map(x => (x._2._1._2.toDouble / x._2._2.toDouble, x._1)).sortByKey().first()._2
     val sa = graph.vertices.filter(x => x._1 == smallAuthor).first()._2
 
-    println("Author with smallest average edge length: " + sa)
+    // Choose a subgraph corresponding to the VLDB conference and compute the total number of triangles in this subgraph
+    val subGraph = graph.subgraph(triplet => triplet.attr._2.contains("pvldb"))
+    val triangleCount = subGraph.partitionBy(PartitionStrategy.RandomVertexCut)
+                        .triangleCount().vertices
+                        .map(x => x._2).sum() / 3
 
-    val subGruph = graph.subgraph(triplet => { triplet.srcAttr.contains("sci") && triplet.dstAttr.contains("sci") })
+    // Choose a subgraph corresponding to the VLDB conference and compute PageRank of every node
+    val pageRanks = subGraph.pageRank(0.0001).vertices.groupByKey().take(10).map(x => (x._1, x._2.sum))
 
-    val triangleCount = graph.subgraph(triplet => triplet.srcAttr.contains("sci") && triplet.dstAttr.contains("sci")).triangleCount().vertices
+    // For each author compute his "Erdös number" assuming that each edges have length 1 and assuming that they have length dependent on the number of authors
 
-    graph.pageRank(0.0001).vertices.groupByKey().map(x => (x._1, x._2.sum)).collect().foreach(x  => println(x._1 + " " + x._2))
-//    println("Triangle cound in vldb subgraph: " + triangleCount.collect().mkString("\n"))
-    // remove
-//    val vertices = graph.vertices.map(_._1).collect()
-//
-//    val res = ShortestPaths.run(graph, vertices)
-//
-//    res.edges.toDF().show(false)
+
+
+    val fw = new FileWriter("output.txt", true)
+    try {
+//      fw.write("number of edges = " + numEdges + "\n")
+//      fw.write("number of vertices = " + numVertices + "\n")
+//      fw.write("most coauthors = " + mostCoauthors + "\n")
+//      fw.write("Author with smallest average edge length: " + sa + "\n")
+//      fw.write("triangle count in vldb subgraph = " + triangleCount + "\n")
+//      fw.write("page ranks are = " + pageRanks.mkString("\n"))
+    }
+    finally fw.close()
   }
 }
