@@ -71,31 +71,42 @@ object GraphX {
 
     val graph = Graph(vertexRDD, edgesRDD)
 
-    val numEdges  = graph.numEdges
-    val numVertices = graph.numVertices
-    val mostCoauthors = graph.vertices.filter(x => x._1 == mostCoauthors).first()._2
-
-    // Find the author with the smallest average edge length.
-    val numNeighbors = graph.collectNeighborIds(EdgeDirection.Either).map(x => (x._1, x._2.length))
-    val sumUpRDD = graph.aggregateMessages[(Long, Long)](t => {
-      t.sendToDst((t.dstId, t.attr._1))
-    }, (a, b) => (a._1, a._2 + b._2))
-
-    val smallAuthor = sumUpRDD.join(numNeighbors).map(x => (x._2._1._2.toDouble / x._2._2.toDouble, x._1)).sortByKey().first()._2
-    val sa = graph.vertices.filter(x => x._1 == smallAuthor).first()._2
-
-    // Choose a subgraph corresponding to the VLDB conference and compute the total number of triangles in this subgraph
-    val subGraph = graph.subgraph(triplet => triplet.attr._2.contains("pvldb"))
-    val triangleCount = subGraph.partitionBy(PartitionStrategy.RandomVertexCut)
-                        .triangleCount().vertices
-                        .map(x => x._2).sum() / 3
-
-    // Choose a subgraph corresponding to the VLDB conference and compute PageRank of every node
-    val pageRanks = subGraph.pageRank(0.0001).vertices.groupByKey().take(10).map(x => (x._1, x._2.sum))
+//    val numEdges  = graph.numEdges
+//    val numVertices = graph.numVertices
+//    val mostCoauthors = graph.vertices.filter(x => x._1 == mostCoauthors).first()._2
+//
+//    // Find the author with the smallest average edge length.
+//    val numNeighbors = graph.collectNeighborIds(EdgeDirection.Either).map(x => (x._1, x._2.length))
+//    val sumUpRDD = graph.aggregateMessages[(Long, Long)](t => {
+//      t.sendToDst((t.dstId, t.attr._1))
+//    }, (a, b) => (a._1, a._2 + b._2))
+//
+//    val smallAuthor = sumUpRDD.join(numNeighbors).map(x => (x._2._1._2.toDouble / x._2._2.toDouble, x._1)).sortByKey().first()._2
+//    val sa = graph.vertices.filter(x => x._1 == smallAuthor).first()._2
+//
+//    // Choose a subgraph corresponding to the VLDB conference and compute the total number of triangles in this subgraph
+//    val subGraph = graph.subgraph(triplet => triplet.attr._2.contains("pvldb"))
+//    val triangleCount = subGraph.partitionBy(PartitionStrategy.RandomVertexCut)
+//                        .triangleCount().vertices
+//                        .map(x => x._2).sum() / 3
+//
+//    // Choose a subgraph corresponding to the VLDB conference and compute PageRank of every node
+//    val pageRanks = subGraph.pageRank(0.0001).vertices.groupByKey().take(10).map(x => (x._1, x._2.sum))
 
     // For each author compute his "Erdös number" assuming that each edges have length 1 and assuming that they have length dependent on the number of authors
+    // Find Erdös
+    val erdos = graph.vertices.filter(v => v._2 == "Erd\\u00f6s").first()
+    println(erdos._1 + " " + erdos._2)
 
+    // set Erdös number to 0 for Erdös, inifinity for the rest
+    val newGraph = graph.mapVertices((id, name) => if (id == erdos._1) 0.0 else Double.PositiveInfinity)
 
+    //  calculate Erdös number for other authors
+    val graphWithErdosNumbers = newGraph.pregel(Double.PositiveInfinity)(
+      (_, dist, newDist) => math.min(dist, newDist) + 1, // Vertex Program
+      triplet => { Iterator((triplet.srcId, triplet.srcAttr)) }, // Send message
+      (a, b) => math.min(a, b) + 1 // Merge Message
+    )
 
     val fw = new FileWriter("output.txt", true)
     try {
