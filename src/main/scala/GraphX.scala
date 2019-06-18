@@ -22,7 +22,7 @@ object GraphX {
 
   def main(args: Array[String]): Unit = {
     val spark = SparkSession.builder.
-      master("local[4]").
+      master("local[8]").
       appName("Bruxa").
       config("spark.app.id", "Bruxa").
       getOrCreate()
@@ -95,18 +95,19 @@ object GraphX {
 
     // For each author compute his "Erdös number" assuming that each edges have length 1 and assuming that they have length dependent on the number of authors
     // Find Erdös
-    val erdos = graph.vertices.filter(v => v._2 == "Erd\\u00f6s").first()
-    println(erdos._1 + " " + erdos._2)
+    val erdosID = -1779292321
+//    val erdos = graph.vertices.filter(v => v._2.contains("Erd\u00f6s")).first()
+//    println(erdos._1 + " " + erdos._2)
 
     // set Erdös number to 0 for Erdös, inifinity for the rest
-    val newGraph = graph.mapVertices((id, name) => if (id == erdos._1) 0.0 else Double.PositiveInfinity)
+    val newGraph = graph.mapVertices((id, name) => if (id == erdosID) 0.0 else Double.PositiveInfinity)
 
     //  calculate Erdös number for other authors
-    val graphWithErdosNumbers = newGraph.pregel(Double.PositiveInfinity)(
+    val graphWithErdosNumbers = newGraph.pregel(Double.PositiveInfinity, 1000000)(
       (_, dist, newDist) => math.min(dist, newDist) + 1, // Vertex Program
-      triplet => { Iterator((triplet.srcId, triplet.srcAttr)) }, // Send message
+      triplet => { if (triplet.srcAttr < triplet.dstAttr) Iterator((triplet.srcId, triplet.srcAttr)) else Iterator.empty}, // Send message
       (a, b) => math.min(a, b) + 1 // Merge Message
-    )
+    ).vertices.map(x => (x._2, x._1)).sortByKey().take(100)
 
     val fw = new FileWriter("output.txt", true)
     try {
@@ -116,6 +117,7 @@ object GraphX {
 //      fw.write("Author with smallest average edge length: " + sa + "\n")
 //      fw.write("triangle count in vldb subgraph = " + triangleCount + "\n")
 //      fw.write("page ranks are = " + pageRanks.mkString("\n"))
+      fw.write("smallest Erdös numbers are = " + graphWithErdosNumbers.mkString("\n"))
     }
     finally fw.close()
   }
