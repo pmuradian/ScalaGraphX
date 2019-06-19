@@ -72,7 +72,8 @@ object GraphX {
 
     val numEdges  = graph.numEdges
     val numVertices = graph.numVertices
-    val mostCoauthors = graph.vertices.filter(x => x._1 == mostCoauthors).first()._2
+    val mostCoauthorsID = graph.degrees.groupByKey().map(x => (x._2.sum, x._1)).sortByKey(false).first()._2
+    val mostCoauthors = graph.vertices.filter(x => x._1 == mostCoauthorsID).first()._2
 
     // Find the author with the smallest average edge length.
     val numNeighbors = graph.collectNeighborIds(EdgeDirection.Either).map(x => (x._1, x._2.length))
@@ -116,7 +117,7 @@ object GraphX {
       fw.write("Author with smallest average edge length: " + sa + "\n")
       fw.write("triangle count in vldb subgraph = " + triangleCount + "\n")
       fw.write("page ranks are = " + pageRanks.mkString("\n"))
-//      fw.write("smallest Erdös numbers are = " + graphWithErdosNumbers.mkString("\n"))
+      fw.write("smallest Erdös numbers are = " + graphWithErdosNumbers.mkString("\n"))
     }
     finally fw.close()
   }
