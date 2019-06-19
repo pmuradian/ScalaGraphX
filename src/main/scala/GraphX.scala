@@ -18,7 +18,7 @@ case class DBLPEntry(title: String, authors: String, year: BigInt) {
 class GraphX
 
 object GraphX {
-  private val datafile = "/Users/azazel/Downloads/dblp2.json"
+  private val datafile = "/Users/azazel/Downloads/dblp5000.json"
 
   def main(args: Array[String]): Unit = {
     val spark = SparkSession.builder.
@@ -91,7 +91,7 @@ object GraphX {
                         .map(x => x._2).sum() / 3
 
     // Choose a subgraph corresponding to the VLDB conference and compute PageRank of every node
-    val pageRanks = subGraph.pageRank(0.0001).vertices.groupByKey().take(10).map(x => (x._1, x._2.sum))
+    val pageRanks = graph.pageRank(0.0001).vertices.groupByKey().map(x => (x._2.sum, x._1)).sortByKey().take(10)
 
     // For each author compute his "Erdös number" assuming that each edges have length 1 and assuming that they have length dependent on the number of authors
     // Find Erdös
@@ -107,7 +107,7 @@ object GraphX {
       (_, num, newNum) => { if (num < newNum) num else newNum + 1 }, // Vertex Program
       triplet => { if (triplet.srcAttr < triplet.dstAttr) Iterator((triplet.dstId, triplet.srcAttr)) else Iterator.empty }, // Send message
       (a, b) => math.min(a, b) // Merge Message
-    ).vertices.map(x => (x._2, x._1)).sortByKey().take(100)
+    ).vertices.map(x => (x._2, x._1)).sortByKey().take(20)
 
     val fw = new FileWriter("output.txt", true)
     try {
@@ -116,7 +116,7 @@ object GraphX {
       fw.write("most coauthors = " + mostCoauthors + "\n")
       fw.write("Author with smallest average edge length: " + sa + "\n")
       fw.write("triangle count in vldb subgraph = " + triangleCount + "\n")
-      fw.write("page ranks are = " + pageRanks.mkString("\n"))
+      fw.write("page ranks are = " + pageRanks.mkString("\n") + "\n")
       fw.write("smallest Erdös numbers are = " + graphWithErdosNumbers.mkString("\n"))
     }
     finally fw.close()
